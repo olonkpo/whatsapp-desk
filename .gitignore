@@ -1,0 +1,8 @@
+/store/
+/*.db*
+/*.sqlite*
+/*.log
+/.env*
+/WhatsAppDesk
+/WhatsAppDesk.exe
+*.zip
