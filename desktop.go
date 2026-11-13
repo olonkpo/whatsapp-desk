@@ -46,21 +46,23 @@ type Person struct {
 	Detail   string `json:"detail"`
 }
 type Desk struct {
-	mu             sync.Mutex
-	Rows           []Person               `json:"rows"`
-	Running        bool                   `json:"running"`
-	Paused         bool                   `json:"paused"`
-	Delay          float64                `json:"delay"`
-	Template       string                 `json:"template"`
-	Error          string                 `json:"error"`
-	Source         map[string]interface{} `json:"source,omitempty"`
-	AttachmentName string                 `json:"attachment_name"`
-	attachment     *Attachment
-	stop           bool
-	groups         map[string]string
-	client         *whatsmeow.Client
-	token, host    string
-	history        *sql.DB
+	mu              sync.Mutex
+	Rows            []Person               `json:"rows"`
+	Running         bool                   `json:"running"`
+	Paused          bool                   `json:"paused"`
+	Delay           float64                `json:"delay"`
+	Template        string                 `json:"template"`
+	Error           string                 `json:"error"`
+	Source          map[string]interface{} `json:"source,omitempty"`
+	AttachmentName  string                 `json:"attachment_name"`
+	Restored        bool                   `json:"restored"`
+	savedAttachment *Attachment
+	attachment      *Attachment
+	stop            bool
+	groups          map[string]string
+	client          *whatsmeow.Client
+	token, host     string
+	history         *sql.DB
 }
 type Action struct {
 	Data, Name, JID, Template, First, Last string
@@ -127,6 +129,9 @@ func startDesk(client *whatsmeow.Client) *Desk {
 		panic(err)
 	}
 	d := &Desk{Rows: []Person{}, Delay: 8, client: client, groups: map[string]string{}, token: hex.EncodeToString(b), history: db}
+	if err = d.loadCampaign(); err != nil {
+		panic(err)
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
@@ -250,6 +255,10 @@ func (d *Desk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		d.attachment = a
 		d.AttachmentName = a.Name
+		if err = d.saveCampaign(); err != nil {
+			respond(w, map[string]string{"error": "Could not save attachment: " + err.Error()}, 500)
+			return
+		}
 		respond(w, map[string]string{"name": a.Name, "mime": a.MIME}, 200)
 		return
 	}
@@ -262,6 +271,37 @@ func (d *Desk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer d.mu.Unlock()
 	fail := func(err error) { respond(w, map[string]string{"error": err.Error()}, 400) }
 	switch r.URL.Path {
+	case "/api/save-draft":
+		if d.Running {
+			fail(fmt.Errorf("Stop sending before saving changes"))
+			return
+		}
+		if a.Delay < 1 || a.Delay > 3600 || len(a.Template) > 4000 {
+			fail(fmt.Errorf("Invalid message or interval"))
+			return
+		}
+		d.Template = a.Template
+		d.Delay = a.Delay
+		chosen := map[int]bool{}
+		for _, i := range a.Selected {
+			chosen[i] = true
+		}
+		for i := range d.Rows {
+			d.Rows[i].Selected = chosen[i] && d.Rows[i].Status == "ready"
+		}
+	case "/api/clear-completed":
+		if d.Running {
+			fail(fmt.Errorf("Stop sending before clearing completed recipients"))
+			return
+		}
+		rows := []Person{}
+		for _, p := range d.Rows {
+			if p.Status != "sent" {
+				rows = append(rows, p)
+			}
+		}
+		d.Rows = rows
+		d.Restored = false
 	case "/api/remove-attachment":
 		if d.Running {
 			fail(fmt.Errorf("Stop sending before changing the attachment"))
@@ -272,6 +312,10 @@ func (d *Desk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/quit":
 		if d.Running {
 			fail(fmt.Errorf("Stop sending before quitting"))
+			return
+		}
+		if err := d.saveCampaign(); err != nil {
+			fail(fmt.Errorf("Could not save campaign: %w", err))
 			return
 		}
 		respond(w, map[string]bool{"ok": true}, 200)
@@ -417,9 +461,18 @@ func (d *Desk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		d.Error = ""
 		d.Template = a.Template
 		d.Delay = a.Delay
+		if err := d.saveCampaign(); err != nil {
+			d.Running = false
+			fail(fmt.Errorf("Could not save campaign; sending has not started: %w", err))
+			return
+		}
 		go d.run(a.Template, a.Delay)
 	default:
 		fail(fmt.Errorf("Unknown action"))
+		return
+	}
+	if err := d.saveCampaign(); err != nil {
+		fail(fmt.Errorf("Could not save campaign: %w", err))
 		return
 	}
 	respond(w, map[string]bool{"ok": true}, 200)
@@ -498,6 +551,12 @@ func (d *Desk) run(template string, delay float64) {
 		}
 		message, _ := personalize(template, p)
 		d.Rows[i].Status = "sending"
+		if err := d.saveCampaign(); err != nil {
+			d.Rows[i].Status = "ready"
+			d.Error = "Could not save campaign. Sending stopped before this recipient."
+			d.mu.Unlock()
+			return
+		}
 		d.mu.Unlock()
 		if attachment != nil && len([]rune(message)) > 1024 {
 			d.mu.Lock()
@@ -536,6 +595,11 @@ func (d *Desk) run(template string, delay float64) {
 		d.mu.Lock()
 		d.Rows[i].Status = status
 		d.Rows[i].Detail = detail
+		if saveErr := d.saveCampaign(); saveErr != nil {
+			d.Error = "Could not save the send result. Sending stopped. Check WhatsApp before retrying."
+			d.mu.Unlock()
+			return
+		}
 		if err != nil {
 			d.Error = "Stopped after an uncertain send. Check WhatsApp before retrying."
 		}

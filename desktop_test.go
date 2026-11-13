@@ -115,6 +115,11 @@ func TestAttachments(t *testing.T) {
 		t.Fatal("Attachment changed during send")
 	}
 	d.Running = false
+	d.history = campaignDB(t, filepath.Join(t.TempDir(), "queue.db"))
+	d.Delay = 8
+	if err := d.loadCampaign(); err != nil {
+		t.Fatal(err)
+	}
 	r = httptest.NewRequest("POST", "http://127.0.0.1:1234/api/remove-attachment", strings.NewReader("{}"))
 	r.Header.Set("X-App-Token", "test")
 	w = httptest.NewRecorder()

@@ -27,8 +27,7 @@ queue and must be checked in WhatsApp before retrying, to avoid duplicates.
 Sent means accepted by WhatsApp, not confirmation of delivery or reading.
 
 Send history is saved locally and can be viewed with Send history.
-The active list/queue is in memory and is not resumed after quitting. Reimport
-starts a new list, so review history before sending the same message again.
+Campaigns are saved locally in SQLite. Use **Save campaign** to preserve draft edits. Starting and quitting also save the current message, interval and recipient selection. On reopening, review the recovered campaign and press **Start sending** to resume ready recipients. Sending never restarts automatically. Interrupted sends become **uncertain** and remain excluded. **Clear completed** removes sent recipients from the active list while retaining history. Importing a new list replaces the saved campaign, so review history before sending again.
 
 ## Local data
 Mac: ~/Library/Application Support/WhatsAppDesk
@@ -40,4 +39,7 @@ phone when you no longer use it. No session or contact data ships in the ZIP.
 
 Based on [WhatsApp MCP](https://github.com/lharries/whatsapp-mcp). See LICENSE and go.mod for dependencies.
 
-Photo and video attachments: choose one JPEG/PNG photo or MP4 video up to 16 MB. The personalized message is sent as its caption (up to 1024 characters). Attachments remain in memory and can be removed before sending.
+Photo and video attachments: choose one JPEG/PNG photo or MP4 video up to 16 MB. The personalized message is sent as its caption (up to 1024 characters). Attachments are saved with the local campaign and can be removed before sending.
+
+## Known limitations
+Delivery/read receipts are not tracked. Uncertain sends halt the queue and require manual WhatsApp review. One photo/video is supported, with a 16 MB app limit. Builds are unsigned previews; Windows and Apple Silicon need target-machine testing. See [ROADMAP.md](ROADMAP.md) for planned work and [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
