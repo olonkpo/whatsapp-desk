@@ -39,3 +39,5 @@ phone when you no longer use it. No session or contact data ships in the ZIP.
 
 
 Based on [WhatsApp MCP](https://github.com/lharries/whatsapp-mcp). See LICENSE and go.mod for dependencies.
+
+Photo and video attachments: choose one JPEG/PNG photo or MP4 video up to 16 MB. The personalized message is sent as its caption (up to 1024 characters). Attachments remain in memory and can be removed before sending.
